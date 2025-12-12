@@ -9,11 +9,6 @@ pipeline {
     environment {
         APP_NAME = 'springboot-demo'
         APP_PORT = '8081'
-        // Configure these for your deployment environment
-        DEPLOY_SERVER = credentials('deploy-server-host')  // e.g., app.example.com
-        DEPLOY_USER = credentials('deploy-server-user')    // e.g., appuser
-        DOCKER_REGISTRY = credentials('docker-registry')   // Optional: registry.example.com
-        DOCKER_BUILD = "${params.DOCKER_BUILD ?: 'true'}"  // Build Docker image
     }
     
     parameters {
@@ -191,19 +186,10 @@ pipeline {
         }
         failure {
             echo '=== Pipeline failed ==='
-            script {
-                if (params.DEPLOY) {
-                    sh 'echo "Check deployment server for application logs"'
-                } else {
-                    sh 'echo "Check build logs for details"'
-                }
-            }
         }
         always {
-            echo '=== Build Summary ==='
-            sh 'echo "Workspace: ${WORKSPACE}"'
-            sh 'echo "Build Number: ${BUILD_NUMBER}"'
-            sh 'echo "Build Status: ${BUILD_STATUS}"'
+            echo '=== Build Complete ==='
+            echo "Status: ${currentBuild.result}"
         }
     }
 }

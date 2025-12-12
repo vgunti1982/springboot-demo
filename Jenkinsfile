@@ -77,33 +77,18 @@ pipeline {
                 expression { params.DEPLOY == true }
             }
             steps {
-                echo '=== Deploying application to ${params.DEPLOY_HOST} ==='
+                echo "=== Deploying application to ${params.DEPLOY_HOST} ==="
                 script {
                     sh '''
-                        # Copy JAR to deployment server
-                        scp -o StrictHostKeyChecking=no target/demo-1.0.0.jar ${DEPLOY_USER}@${params.DEPLOY_HOST}:/opt/springboot/
+                        DEPLOY_HOST="${DEPLOY_HOST_PARAM}"
                         
-                        # Restart application on deployment server
-                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${params.DEPLOY_HOST} << 'EOF'
-                            echo "Stopping existing application..."
-                            pkill -f "demo-1.0.0.jar" || true
-                            sleep 3
-                            
-                            echo "Starting new application..."
-                            cd /opt/springboot
-                            nohup java -jar demo-1.0.0.jar > app.log 2>&1 &
-                            sleep 10
-                            
-                            # Verify process is running
-                            if ps aux | grep -q "[j]ava -jar demo-1.0.0.jar"; then
-                                echo "Application started successfully"
-                                ps aux | grep "[j]ava -jar demo-1.0.0.jar"
-                            else
-                                echo "Application failed to start"
-                                tail -20 app.log
-                                exit 1
-                            fi
-                        EOF
+                        echo "Copying JAR to deployment server: $DEPLOY_HOST"
+                        scp -o StrictHostKeyChecking=no target/demo-1.0.0.jar appuser@$DEPLOY_HOST:/opt/springboot/
+                        
+                        echo "Starting application on remote server..."
+                        ssh -o StrictHostKeyChecking=no appuser@$DEPLOY_HOST "pkill -f 'demo-1.0.0.jar' || true; sleep 2; cd /opt/springboot && nohup java -jar demo-1.0.0.jar > app.log 2>&1 &"
+                        sleep 5
+                        echo "Application started on remote server"
                     '''
                 }
             }
@@ -114,20 +99,22 @@ pipeline {
                 expression { params.DEPLOY == true }
             }
             steps {
-                echo '=== Performing remote health check ==='
+                echo "=== Performing remote health check on ${params.DEPLOY_HOST} ==="
                 script {
                     sh '''
-                        echo "Waiting for application to be ready..."
+                        DEPLOY_HOST="${DEPLOY_HOST_PARAM}"
+                        
+                        echo "Waiting for application to be ready on $DEPLOY_HOST..."
                         for i in {1..30}; do
-                            if curl -s http://${params.DEPLOY_HOST}:${APP_PORT}/health | grep -q "OK"; then
-                                echo "Health check passed!"
+                            if curl -s http://$DEPLOY_HOST:8081/health | grep -q "OK"; then
+                                echo "✓ Health check passed!"
                                 exit 0
                             fi
-                            echo "Attempt $i: Waiting for application..."
+                            echo "Attempt $i: Waiting..."
                             sleep 2
                         done
                         
-                        echo "Health check failed after 60 seconds"
+                        echo "✗ Health check failed after 60 seconds"
                         exit 1
                     '''
                 }
@@ -139,11 +126,13 @@ pipeline {
                 expression { params.DEPLOY == true }
             }
             steps {
-                echo '=== Running remote smoke tests ==='
+                echo "=== Running remote smoke tests on ${params.DEPLOY_HOST} ==="
                 script {
                     sh '''
-                        echo "Testing main endpoint..."
-                        response=$(curl -s http://${params.DEPLOY_HOST}:${APP_PORT}/)
+                        DEPLOY_HOST="${DEPLOY_HOST_PARAM}"
+                        
+                        echo "Testing main endpoint on $DEPLOY_HOST..."
+                        response=$(curl -s http://$DEPLOY_HOST:8081/)
                         echo "Response: $response"
                         
                         if echo "$response" | grep -q "Hello World"; then

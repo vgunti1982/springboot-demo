@@ -8,6 +8,18 @@ pipeline {
     
     environment {
         APP_NAME = 'springboot-demo'
+        APP_PORT = '8081'
+        // Configure these for your deployment environment
+        DEPLOY_SERVER = credentials('deploy-server-host')  // e.g., app.example.com
+        DEPLOY_USER = credentials('deploy-server-user')    // e.g., appuser
+        DOCKER_REGISTRY = credentials('docker-registry')   // Optional: registry.example.com
+        DOCKER_BUILD = "${params.DOCKER_BUILD ?: 'true'}"  // Build Docker image
+    }
+    
+    parameters {
+        booleanParam(name: 'DOCKER_BUILD', defaultValue: true, description: 'Build Docker image')
+        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Deploy to server')
+        string(name: 'DEPLOY_HOST', defaultValue: 'localhost', description: 'Deployment server hostname/IP')
     }
     
     stages {
@@ -49,66 +61,116 @@ pipeline {
             }
         }
         
-        stage('Run Application') {
+        stage('Build Docker Image') {
+            when {
+                expression { params.DOCKER_BUILD == true }
+            }
             steps {
-                echo '=== Starting application ==='
+                echo '=== Building Docker image ==='
                 script {
-                    // Kill existing process if running
                     sh '''
-                        pkill -f "demo-1.0.0.jar" || true
-                        sleep 3
+                        docker build -t ${APP_NAME}:${BUILD_NUMBER} .
+                        docker tag ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest
+                        docker images | grep ${APP_NAME}
                     '''
-                    
-                    // Verify JAR exists
-                    sh 'ls -lh target/demo-1.0.0.jar'
-                    
-                    // Start application in background
-                    sh '''
-                        nohup java -jar target/demo-1.0.0.jar > app.log 2>&1 &
-                        APP_PID=$!
-                        echo $APP_PID > app.pid
-                        echo "Started app with PID: $APP_PID"
-                        sleep 15
-                    '''
-                    
-                    // Verify process is running
-                    sh 'ps aux | grep demo-1.0.0.jar | grep -v grep'
-                    
-                    // Show initial logs
-                    sh 'head -20 app.log'
                 }
             }
         }
         
-        stage('Health Check') {
+        stage('Deploy to Server') {
+            when {
+                expression { params.DEPLOY == true }
+            }
             steps {
-                echo '=== Performing health check ==='
+                echo '=== Deploying application to ${params.DEPLOY_HOST} ==='
                 script {
-                    // Check if app is running
-                    sh 'ps aux | grep demo-1.0.0.jar || true'
-                    sh 'cat app.log || true'
-                    
-                    // Try health check with retries
-                    retry(3) {
-                        sleep 5
-                        sh 'curl -f http://localhost:8081/health'
-                    }
+                    sh '''
+                        # Copy JAR to deployment server
+                        scp -o StrictHostKeyChecking=no target/demo-1.0.0.jar ${DEPLOY_USER}@${params.DEPLOY_HOST}:/opt/springboot/
+                        
+                        # Restart application on deployment server
+                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${params.DEPLOY_HOST} << 'EOF'
+                            echo "Stopping existing application..."
+                            pkill -f "demo-1.0.0.jar" || true
+                            sleep 3
+                            
+                            echo "Starting new application..."
+                            cd /opt/springboot
+                            nohup java -jar demo-1.0.0.jar > app.log 2>&1 &
+                            sleep 10
+                            
+                            # Verify process is running
+                            if ps aux | grep -q "[j]ava -jar demo-1.0.0.jar"; then
+                                echo "Application started successfully"
+                                ps aux | grep "[j]ava -jar demo-1.0.0.jar"
+                            else
+                                echo "Application failed to start"
+                                tail -20 app.log
+                                exit 1
+                            fi
+                        EOF
+                    '''
                 }
             }
         }
         
-        stage('Smoke Test') {
+        stage('Health Check - Remote') {
+            when {
+                expression { params.DEPLOY == true }
+            }
             steps {
-                echo '=== Running smoke tests ==='
+                echo '=== Performing remote health check ==='
                 script {
-                    def response = sh(script: 'curl -s http://localhost:8081/', returnStdout: true).trim()
-                    echo "Response received: ${response}"
-                    
-                    if (!response.contains('Hello World')) {
-                        sh 'cat app.log'
-                        error("Smoke test failed! Expected 'Hello World', got: ${response}")
-                    }
+                    sh '''
+                        echo "Waiting for application to be ready..."
+                        for i in {1..30}; do
+                            if curl -s http://${params.DEPLOY_HOST}:${APP_PORT}/health | grep -q "OK"; then
+                                echo "Health check passed!"
+                                exit 0
+                            fi
+                            echo "Attempt $i: Waiting for application..."
+                            sleep 2
+                        done
+                        
+                        echo "Health check failed after 60 seconds"
+                        exit 1
+                    '''
                 }
+            }
+        }
+        
+        stage('Smoke Test - Remote') {
+            when {
+                expression { params.DEPLOY == true }
+            }
+            steps {
+                echo '=== Running remote smoke tests ==='
+                script {
+                    sh '''
+                        echo "Testing main endpoint..."
+                        response=$(curl -s http://${params.DEPLOY_HOST}:${APP_PORT}/)
+                        echo "Response: $response"
+                        
+                        if echo "$response" | grep -q "Hello World"; then
+                            echo "✓ Smoke test PASSED"
+                        else
+                            echo "✗ Smoke test FAILED"
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Unit Tests Only') {
+            when {
+                expression { params.DEPLOY == false }
+            }
+            steps {
+                echo '=== Jenkins on different server - deployment skipped ==='
+                sh 'echo "JAR built and available at: target/demo-1.0.0.jar"'
+                sh 'echo "Docker image ready: ${APP_NAME}:latest"'
+                sh 'echo "Use DEPLOY parameter to deploy to remote server"'
             }
         }
     }
@@ -116,19 +178,32 @@ pipeline {
     post {
         success {
             echo '=== Pipeline completed successfully ==='
-            echo "Application running at: http://localhost:8081"
-            echo "View logs: cat app.log"
+            script {
+                if (params.DEPLOY) {
+                    echo "Application deployed to: http://${params.DEPLOY_HOST}:${APP_PORT}"
+                } else {
+                    echo "Build artifacts ready:"
+                    echo "  JAR: target/demo-1.0.0.jar"
+                    echo "  Docker: ${APP_NAME}:latest"
+                    echo "  Build: ${BUILD_NUMBER}"
+                }
+            }
         }
         failure {
             echo '=== Pipeline failed ==='
             script {
-                sh 'pkill -f "demo-1.0.0.jar" || true'
+                if (params.DEPLOY) {
+                    sh 'echo "Check deployment server for application logs"'
+                } else {
+                    sh 'echo "Check build logs for details"'
+                }
             }
         }
         always {
-            echo '=== Cleaning workspace ==='
-            // Keep app running, only clean build artifacts
-            sh 'rm -f app.pid'
+            echo '=== Build Summary ==='
+            sh 'echo "Workspace: ${WORKSPACE}"'
+            sh 'echo "Build Number: ${BUILD_NUMBER}"'
+            sh 'echo "Build Status: ${BUILD_STATUS}"'
         }
     }
 }

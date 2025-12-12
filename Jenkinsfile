@@ -57,9 +57,6 @@ pipeline {
         }
         
         stage('Build Docker Image') {
-            when {
-                expression { params.DOCKER_BUILD == true }
-            }
             steps {
                 echo '=== Building Docker image ==='
                 script {
@@ -67,6 +64,30 @@ pipeline {
                         docker build -t ${APP_NAME}:${BUILD_NUMBER} .
                         docker tag ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest
                         docker images | grep ${APP_NAME}
+                    '''
+                }
+            }
+        }
+        
+        stage('Run Docker Container') {
+            steps {
+                echo '=== Running Docker container ==='
+                script {
+                    sh '''
+                        # Stop and remove existing container
+                        docker stop ${APP_NAME} 2>/dev/null || true
+                        docker rm ${APP_NAME} 2>/dev/null || true
+                        
+                        # Run new container
+                        docker run -d -p 8080:8080 --name ${APP_NAME} ${APP_NAME}:latest
+                        echo "Container started on port 8080"
+                        
+                        # Wait for app to start
+                        sleep 5
+                        
+                        # Health check
+                        echo "=== Health Check ==="
+                        curl -s http://localhost:8080/health || echo "App not ready yet"
                     '''
                 }
             }

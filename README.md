@@ -1,34 +1,8 @@
-# SpringBoot Jenkins Multistage Pipeline Demo
+# Spring Boot Demo Application
 
-A simple Spring Boot application demonstrating Jenkins multistage pipeline integration with Docker containerization.
+A simple, production-ready Spring Boot application demonstrating REST endpoints with automated testing, Docker containerization, and Jenkins CI/CD integration.
 
-## Features
-
-- RESTful web service with two endpoints
-- JUnit tests
-- Maven build automation
-- Docker containerization
-- Jenkins multistage pipeline
-- Automated health checks and smoke tests
-
-## Endpoints
-
-- `GET /` - Returns "Hello World from Jenkins Pipeline!"
-- `GET /health` - Returns "OK" (health check endpoint)
-
-## Prerequisites
-
-- Java 17+
-- Maven 3.9+
-- Docker
-- Jenkins with:
-  - Maven plugin
-  - JDK 17 configured
-  - Docker available on Jenkins agent
-
-## Local Development
-
-### Build and Run
+## Quick Start (Local Development)
 
 ```bash
 # Build
@@ -38,73 +12,152 @@ mvn clean package
 java -jar target/demo-1.0.0.jar
 
 # Test endpoints
-curl http://localhost:8080/
-curl http://localhost:8080/health
+curl http://localhost:8081/
+curl http://localhost:8081/health
 ```
 
-### Run Tests
+Application runs on **http://localhost:8081**
+
+---
+
+## Features
+
+- ✅ RESTful endpoints with health checks
+- ✅ Comprehensive unit tests (JUnit 5, Spring Boot Test)
+- ✅ Docker containerization with health monitoring
+- ✅ Maven build automation (Java 17, Spring Boot 3.2)
+- ✅ Jenkins CI/CD pipeline integration
+- ✅ Production-ready error handling
+
+## Endpoints
+
+| Method | Path | Response | Purpose |
+|--------|------|----------|---------|
+| `GET` | `/` | `Hello World from Jenkins Pipeline!` | Main endpoint |
+| `GET` | `/health` | `OK` | Health check |
+
+## Prerequisites
+
+- **Java**: 17 or higher
+- **Maven**: 3.9 or higher
+- **Docker**: For containerization (optional)
+
+## Local Development
+
+### 1. Build
+
+```bash
+mvn clean compile
+```
+
+This compiles source code and validates configuration.
+
+### 2. Run Tests
 
 ```bash
 mvn test
 ```
 
-### Docker Build and Run
+Executes JUnit test suite:
+- `testHelloEndpoint()` - Verifies `/` endpoint returns correct message
+- `testHealthEndpoint()` - Verifies `/health` endpoint returns `OK`
+
+View test report: `target/surefire-reports/`
+
+### 3. Package
 
 ```bash
-# Build image
-docker build -t springboot-demo .
-
-# Run container
-docker run -d -p 8080:8080 --name springboot-demo springboot-demo
-
-# Check logs
-docker logs springboot-demo
-
-# Stop container
-docker stop springboot-demo
-docker rm springboot-demo
+mvn package
 ```
 
-## Jenkins Setup
+Creates executable JAR: `target/demo-1.0.0.jar`
 
-### 1. Configure Tools (Manage Jenkins → Tools)
+### 4. Run Application
 
-**Maven Installation:**
-- Name: `Maven-3.9`
-- Version: 3.9.x or higher
+```bash
+java -jar target/demo-1.0.0.jar
+```
 
-**JDK Installation:**
-- Name: `JDK-17`
-- Version: Java 17
+Application starts on port **8081** (configured in `src/main/resources/application.properties`).
 
-### 2. Create Pipeline Job
+### 5. Test Endpoints
 
-1. New Item → Pipeline
-2. Enter name: `springboot-pipeline`
-3. Configure:
-   - **Pipeline Definition:** Pipeline script from SCM
-   - **SCM:** Git
-   - **Repository URL:** `<your-git-repo-url>`
-   - **Branch Specifier:** `*/main`
-   - **Script Path:** `Jenkinsfile`
-4. Save
+```bash
+# Main endpoint
+curl http://localhost:8081/
 
-### 3. Run Pipeline
+# Health check
+curl http://localhost:8081/health
 
-- Click "Build Now"
-- Monitor Console Output
-- Access application at `http://localhost:8080`
+# JSON format (verbose)
+curl -i http://localhost:8081/health
+```
 
-## Pipeline Stages
+---
 
-1. **Checkout** - Clone repository
-2. **Build** - Compile Java source code
-3. **Test** - Execute JUnit tests
-4. **Package** - Create JAR artifact
-5. **Build Docker Image** - Containerize application
-6. **Run Container** - Deploy container locally
-7. **Health Check** - Verify `/health` endpoint
-8. **Smoke Test** - Verify application response
+## Docker
+
+### Build Docker Image
+
+```bash
+# Build from Dockerfile
+docker build -t springboot-demo .
+
+# Verify image
+docker images | grep springboot-demo
+```
+
+The `Dockerfile` uses:
+- **Base**: `eclipse-temurin:17-jre-alpine` (lightweight, security-patched)
+- **Port**: `8080` (container port)
+- **Health Check**: Monitors `/health` endpoint every 30 seconds
+
+### Run Docker Container
+
+```bash
+# Run container
+docker run -d \
+  -p 8080:8080 \
+  --name springboot-app \
+  springboot-demo
+
+# Check logs
+docker logs springboot-app
+
+# Test endpoints
+curl http://localhost:8080/
+curl http://localhost:8080/health
+
+# View running containers
+docker ps | grep springboot
+
+# Stop container
+docker stop springboot-app
+
+# Remove container
+docker rm springboot-app
+```
+
+### Health Checks in Docker
+
+The Dockerfile includes a health check that verifies the application is running:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+```
+
+- **Interval**: 30 seconds between checks
+- **Start Period**: 40 seconds before first check
+- **Timeout**: 3 seconds per check
+- **Retries**: 3 failed checks before marking unhealthy
+
+View health status:
+```bash
+docker inspect springboot-app --format='{{.State.Health.Status}}'
+```
+
+---
 
 ## Project Structure
 
@@ -112,52 +165,176 @@ docker rm springboot-demo
 springboot-demo/
 ├── src/
 │   ├── main/
-│   │   └── java/
-│   │       └── com/
-│   │           └── example/
-│   │               └── demo/
-│   │                   └── Application.java
+│   │   ├── java/com/example/demo/
+│   │   │   └── Application.java       # REST endpoints, main class
+│   │   └── resources/
+│   │       └── application.properties # Port, app name config
 │   └── test/
-│       └── java/
-│           └── com/
-│               └── example/
-│                   └── demo/
-│                       └── ApplicationTest.java
-├── Dockerfile
-├── Jenkinsfile
-├── pom.xml
-└── README.md
+│       └── java/com/example/demo/
+│           └── ApplicationTest.java   # Unit tests
+├── Dockerfile                          # App container definition
+├── Dockerfile.jenkins                  # Jenkins container definition
+├── Jenkinsfile                         # CI/CD pipeline configuration
+├── pom.xml                            # Maven build configuration
+├── README.md                          # This file
+└── docs/
+    └── README_JENKINS.md              # Jenkins setup guide
 ```
+
+## Configuration
+
+### Application Port
+
+Default: **8081**
+
+Modify in `src/main/resources/application.properties`:
+```properties
+server.port=8081
+spring.application.name=springboot-demo
+```
+
+Then rebuild:
+```bash
+mvn clean package
+java -jar target/demo-1.0.0.jar
+```
+
+---
+
+## Build with Maven
+
+### All-in-One: Build, Test, Package
+
+```bash
+mvn clean package
+```
+
+This runs in sequence:
+1. `clean` - Removes previous build
+2. `compile` - Builds source code
+3. `test` - Runs unit tests
+4. `package` - Creates JAR
+
+### Skip Tests (Faster Build)
+
+```bash
+mvn clean package -DskipTests
+```
+
+Used in CI/CD pipelines for speed (tests run separately).
+
+### View Maven Dependencies
+
+```bash
+mvn dependency:tree
+```
+
+Key dependencies (from `pom.xml`):
+- `spring-boot-starter-web` - REST framework
+- `spring-boot-starter-test` - Test utilities (JUnit 5, Mockito)
+
+---
+
+## Jenkins CI/CD Pipeline
+
+The application integrates with Jenkins for automated builds. See [docs/README_JENKINS.md](docs/README_JENKINS.md) for:
+- Setting up Jenkins with Docker
+- Creating and running the pipeline
+- Build parameters and artifacts
+- Troubleshooting
+
+Pipeline workflow:
+```
+Checkout → Build → Test → Package → Docker Image → ✅ Ready
+```
+
+---
 
 ## Troubleshooting
 
 ### Port Already in Use
+
+**Error**: `Address already in use :8081`
+
 ```bash
-docker stop springboot-demo
-docker rm springboot-demo
+# Find process using port 8081
+lsof -i :8081
+
+# Kill process (if safe)
+kill -9 <PID>
+
+# Or use different port
+java -jar target/demo-1.0.0.jar --server.port=9000
 ```
 
 ### Maven Build Fails
-- Verify JDK 17 is installed
-- Check internet connectivity for dependency download
 
-### Docker Image Build Fails
-- Ensure Docker daemon is running
-- Verify Docker is accessible from Jenkins
+**Error**: `Unrecognized option: --release: 17`
 
-### Pipeline Fails at Health Check
-- Increase sleep duration in Jenkinsfile
-- Check container logs: `docker logs springboot-demo`
+**Solution**: Upgrade Maven
+```bash
+# Check version
+mvn --version
 
-## Enhancement Ideas
+# Download Maven 3.9+
+# https://maven.apache.org/download.cgi
+```
 
-- Add SonarQube code analysis stage
-- Implement deployment to Kubernetes
-- Add performance testing stage
-- Configure webhook triggers
-- Implement blue-green deployment
-- Add Slack/email notifications
+**Error**: `OutOfMemoryException`
+
+**Solution**: Increase heap memory
+```bash
+export MAVEN_OPTS="-Xmx512m"
+mvn clean package
+```
+
+### Docker Build Fails
+
+**Error**: `permission denied`
+
+**Solution**: Ensure Docker daemon is running
+```bash
+docker ps  # Should work without errors
+```
+
+**Error**: `Dockerfile not found`
+
+**Solution**: Run from repo root
+```bash
+cd /path/to/springboot-demo
+docker build -t springboot-demo .
+```
+
+### Application Won't Start
+
+**Error**: `Failed to start Tomcat`
+
+Check logs for port conflicts or missing dependencies:
+```bash
+java -jar target/demo-1.0.0.jar 2>&1 | head -50
+```
+
+---
+
+## Performance Tips
+
+- **Skip tests during dev** (if repeatedly rebuilding):
+  ```bash
+  mvn package -DskipTests
+  ```
+- **Use Docker** for consistent environments across machines
+- **Monitor health check logs** in production:
+  ```bash
+  docker logs --tail 20 springboot-app
+  ```
+
+---
 
 ## License
 
 MIT
+
+## Support
+
+For Jenkins setup, see [docs/README_JENKINS.md](docs/README_JENKINS.md)  
+For issues or contributions, open a GitHub issue or pull request.

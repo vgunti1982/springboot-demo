@@ -1,0 +1,39 @@
+# Jenkins Docker image with Maven, JDK 17, and Docker
+FROM jenkins/jenkins:lts-jdk17
+
+USER root
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    maven \
+    docker.io \
+    curl \
+    git \
+    openssh-client \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Jenkins user to docker group for Docker access
+RUN usermod -aG docker jenkins
+
+# Install Jenkins plugins
+RUN jenkins-plugin-cli --plugins \
+    pipeline-model-definition \
+    pipeline-stage-view \
+    git \
+    maven-plugin \
+    junit \
+    docker-workflow \
+    timestamper \
+    log-parser
+
+USER jenkins
+
+# Enable script security and configure basic settings
+RUN mkdir -p /var/jenkins_home && \
+    echo '<?xml version="1.0" encoding="UTF-8"?>' > /var/jenkins_home/jenkins.model.JenkinsLocationConfiguration.xml && \
+    echo '<jenkins.model.JenkinsLocationConfiguration>' >> /var/jenkins_home/jenkins.model.JenkinsLocationConfiguration.xml && \
+    echo '  <jenkinsUrl>http://localhost:8080/</jenkinsUrl>' >> /var/jenkins_home/jenkins.model.JenkinsLocationConfiguration.xml && \
+    echo '</jenkins.model.JenkinsLocationConfiguration>' >> /var/jenkins_home/jenkins.model.JenkinsLocationConfiguration.xml
+
+EXPOSE 8080 50000

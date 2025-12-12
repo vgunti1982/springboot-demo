@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  jenkins:
+    image: jenkins-springboot:latest
+    container_name: jenkins-springboot
+    ports:
+      - "9080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - JENKINS_OPTS=--argumentsRealm.passwd.admin=admin --argumentsRealm.roles.admin=admin --disable-remember-me
+    networks:
+      - jenkins_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  springboot-app:
+    image: springboot-demo:latest
+    container_name: springboot-app-demo
+    ports:
+      - "8081:8081"
+    networks:
+      - jenkins_network
+    depends_on:
+      - jenkins
+
+volumes:
+  jenkins_home:
+    driver: local
+
+networks:
+  jenkins_network:
+    driver: bridge

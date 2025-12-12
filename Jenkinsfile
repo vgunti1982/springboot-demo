@@ -56,15 +56,26 @@ pipeline {
                     // Kill existing process if running
                     sh '''
                         pkill -f "demo-1.0.0.jar" || true
-                        sleep 2
+                        sleep 3
                     '''
+                    
+                    // Verify JAR exists
+                    sh 'ls -lh target/demo-1.0.0.jar'
                     
                     // Start application in background
                     sh '''
                         nohup java -jar target/demo-1.0.0.jar > app.log 2>&1 &
-                        echo $! > app.pid
-                        sleep 10
+                        APP_PID=$!
+                        echo $APP_PID > app.pid
+                        echo "Started app with PID: $APP_PID"
+                        sleep 15
                     '''
+                    
+                    // Verify process is running
+                    sh 'ps aux | grep demo-1.0.0.jar | grep -v grep'
+                    
+                    // Show initial logs
+                    sh 'head -20 app.log'
                 }
             }
         }
@@ -73,7 +84,15 @@ pipeline {
             steps {
                 echo '=== Performing health check ==='
                 script {
-                    sh 'curl -f http://localhost:8080/health || exit 1'
+                    // Check if app is running
+                    sh 'ps aux | grep demo-1.0.0.jar || true'
+                    sh 'cat app.log || true'
+                    
+                    // Try health check with retries
+                    retry(3) {
+                        sleep 5
+                        sh 'curl -f http://localhost:8081/health'
+                    }
                 }
             }
         }
@@ -82,11 +101,13 @@ pipeline {
             steps {
                 echo '=== Running smoke tests ==='
                 script {
-                    def response = sh(script: 'curl -s http://localhost:8080/', returnStdout: true).trim()
+                    def response = sh(script: 'curl -s http://localhost:8081/', returnStdout: true).trim()
+                    echo "Response received: ${response}"
+                    
                     if (!response.contains('Hello World')) {
-                        error('Smoke test failed!')
+                        sh 'cat app.log'
+                        error("Smoke test failed! Expected 'Hello World', got: ${response}")
                     }
-                    echo "Response: ${response}"
                 }
             }
         }
@@ -95,7 +116,7 @@ pipeline {
     post {
         success {
             echo '=== Pipeline completed successfully ==='
-            echo "Application running at: http://localhost:8080"
+            echo "Application running at: http://localhost:8081"
             echo "View logs: cat app.log"
         }
         failure {

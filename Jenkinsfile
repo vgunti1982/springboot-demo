@@ -8,7 +8,6 @@ pipeline {
     
     environment {
         APP_NAME = 'springboot-demo'
-        BUILD_NUMBER = "${env.BUILD_NUMBER}"
     }
     
     stages {
@@ -50,23 +49,22 @@ pipeline {
             }
         }
         
-        stage('Build Docker Image') {
+        stage('Run Application') {
             steps {
-                echo '=== Building Docker image ==='
+                echo '=== Starting application ==='
                 script {
-                    sh "docker build -t ${APP_NAME}:${BUILD_NUMBER} ."
-                    sh "docker tag ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest"
-                }
-            }
-        }
-        
-        stage('Run Container') {
-            steps {
-                echo '=== Starting container ==='
-                script {
-                    sh "docker stop ${APP_NAME} || true"
-                    sh "docker rm ${APP_NAME} || true"
-                    sh "docker run -d --name ${APP_NAME} -p 8080:8080 ${APP_NAME}:latest"
+                    // Kill existing process if running
+                    sh '''
+                        pkill -f "demo-1.0.0.jar" || true
+                        sleep 2
+                    '''
+                    
+                    // Start application in background
+                    sh '''
+                        nohup java -jar target/demo-1.0.0.jar > app.log 2>&1 &
+                        echo $! > app.pid
+                        sleep 10
+                    '''
                 }
             }
         }
@@ -75,7 +73,6 @@ pipeline {
             steps {
                 echo '=== Performing health check ==='
                 script {
-                    sleep 10
                     sh 'curl -f http://localhost:8080/health || exit 1'
                 }
             }
@@ -99,14 +96,18 @@ pipeline {
         success {
             echo '=== Pipeline completed successfully ==='
             echo "Application running at: http://localhost:8080"
+            echo "View logs: cat app.log"
         }
         failure {
             echo '=== Pipeline failed ==='
-            sh "docker stop ${APP_NAME} || true"
-            sh "docker rm ${APP_NAME} || true"
+            script {
+                sh 'pkill -f "demo-1.0.0.jar" || true'
+            }
         }
         always {
-            cleanWs()
+            echo '=== Cleaning workspace ==='
+            // Keep app running, only clean build artifacts
+            sh 'rm -f app.pid'
         }
     }
 }
